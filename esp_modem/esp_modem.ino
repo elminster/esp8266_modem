@@ -1,30 +1,28 @@
 /*
- * ESP8266 based virtual modem
- * Copyright (C) 2016 Jussi Salin <salinjus@gmail.com>
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the  
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- */
+   ESP8266 based virtual modem
+   Copyright (C) 2016 Jussi Salin <salinjus@gmail.com>
+   Copyright (C) 2018 Daniel Jameson <djameson@gmail.com>
+
+   This program is free software: you can redistribute it and/or modify
+   it under the terms of the GNU General Public License as published by
+   the Free Software Foundation, either version 3 of the License, or
+   (at your option) any later version.
+
+   This program is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+   GNU General Public License for more details.
+
+   You should have received a copy of the GNU General Public License
+   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
 
 #include <ESP8266WiFi.h>
 #include <algorithm>
 
 //#defines
-
-//#define USE_SWITCH 1     // Use a   ware reset switch
 //#define DEBUG 1          // Print additional debug information to serial channel
 #undef DEBUG
-#undef USE_SWITCH
 #define SWITCH_PIN 0       // GPIO0 (programmind mode pin)
 #define DEFAULT_BPS 2400 // 2400 safe for all old computers including C64
 #define LISTEN_PORT 23     // Listen to this if not connected. Set to zero to disable.
@@ -33,13 +31,16 @@
 #define LED_PIN 2          // Status LED
 #define LED_TIME 1         // How many ms to keep LED on at activity
 #define TX_BUF_SIZE 256    // Buffer where to read from serial before writing to TCP
-                           // (that direction is very blocking by the ESP TCP stack,
-                           // so we can't do one byte a time.)
+// (that direction is very blocking by the ESP TCP stack,
+// so we can't do one byte a time.)
+#define RTS 13             // RTS Pin (Modem Ready to Receive)
+#define CTS 12             // CTS Pin (Modem is OK to send) 
+
 // Telnet codes
 #define DO 0xfd
 #define WONT 0xfc
 #define WILL 0xfb
-#define DONT 0xfe                           
+#define DONT 0xfe
 
 // Global variables
 
@@ -49,8 +50,9 @@ WiFiServer tcpServer(LISTEN_PORT);
 String cmd = "";           // Gather a new AT command to this string from serial
 bool cmdMode = true;       // Are we in AT command mode or connected mode
 bool telnet = true;        // Is telnet control code handling enabled
+bool hardwareFlow = false; // Using hardware flow control?
 
-unsigned long lastRingMs=0;// Time of last "RING" message (millis())
+unsigned long lastRingMs = 0; // Time of last "RING" message (millis())
 long myBps;                // What is the current BPS setting
 char plusCount = 0;        // Go to AT mode at "+++" sequence, that has to be counted
 unsigned long plusTime = 0;// When did we last receive a "+++" sequence
@@ -59,17 +61,12 @@ uint8_t txBuf[TX_BUF_SIZE]; // Transmit Buffer
 
 
 /**
- * Arduino main init function
- */
+   Arduino main init function
+*/
 void setup()
 {
   Serial.begin(DEFAULT_BPS);
   myBps = DEFAULT_BPS;
-
-#ifdef USE_SWITCH
-  pinMode(SWITCH_PIN, INPUT);
-  digitalWrite(SWITCH_PIN, HIGH);
-#endif
 
   Serial.println("Virtual modem");
   Serial.println("=============");
@@ -100,8 +97,8 @@ void setup()
 }
 
 /**
- * Turn on the LED and store the time, so the LED will be shortly after turned off
- */
+   Turn on the LED and store the time, so the LED will be shortly after turned off
+*/
 void led_on(void)
 {
   digitalWrite(LED_PIN, LOW);
@@ -109,8 +106,8 @@ void led_on(void)
 }
 
 /**
- * Perform a command given in command mode
- */
+   Perform a command given in command mode
+*/
 void command()
 {
   cmd.trim();
@@ -123,96 +120,26 @@ void command()
 
   /**** Just AT ****/
   if (upCmd == "AT") Serial.println("OK");
-  
+
   /**** Dial to host ****/
   else if ((upCmd.indexOf("ATDT") == 0) || (upCmd.indexOf("ATDP") == 0) || (upCmd.indexOf("ATDI") == 0))
   {
-    int portIndex = cmd.indexOf(":");
-    String host, port;
-    if (portIndex != -1)
-    {
-      host = cmd.substring(4, portIndex);
-      port = cmd.substring(portIndex + 1, cmd.length());
-    }
-    else
-    {
-      host = cmd.substring(4, cmd.length());
-      port = "23"; // Telnet default
-    }
-    Serial.print("Connecting to ");
-    Serial.print(host);
-    Serial.print(":");
-    Serial.println(port);
-    char *hostChr = new char[host.length() + 1];
-    host.toCharArray(hostChr, host.length() + 1);
-    int portInt = port.toInt();
-    tcpClient.setNoDelay(true); // Try to disable naggle
-    if (tcpClient.connect(hostChr, portInt))
-    {
-      tcpClient.setNoDelay(true); // Try to disable naggle
-      Serial.print("CONNECT ");
-      Serial.println(myBps);
-      cmdMode = false;
-      Serial.flush();
-      if (LISTEN_PORT > 0) tcpServer.stop();
-    }
-    else
-    {
-      Serial.println("NO CARRIER");
-    }
-    delete hostChr;
+    dialHost(upCmd);
+
   }
 
   /**** Connect to WIFI ****/
   else if (upCmd.indexOf("ATWIFI") == 0)
   {
-    int keyIndex = cmd.indexOf(",");
-    String ssid, key;
-    if (keyIndex != -1)
-    {
-      ssid = cmd.substring(6, keyIndex);
-      key = cmd.substring(keyIndex + 1, cmd.length());
-    }
-    else
-    {
-      ssid = cmd.substring(6, cmd.length());
-      key = "";
-    }
-    char *ssidChr = new char[ssid.length() + 1];
-    ssid.toCharArray(ssidChr, ssid.length() + 1);
-    char *keyChr = new char[key.length() + 1];
-    key.toCharArray(keyChr, key.length() + 1);
-    Serial.print("Connecting to ");
-    Serial.print(ssid);
-    Serial.print("/");
-    Serial.println(key);
-    WiFi.begin(ssidChr, keyChr);
-    for (int i=0; i<100; i++)
-    {
-      delay(100);
-      if (WiFi.status() == WL_CONNECTED)
-      {
-        Serial.println("OK");
-        break;
-      }
-    }
-    if (WiFi.status() != WL_CONNECTED)
-    {
-      Serial.println("ERROR");
-    }
-    delete ssidChr;
-    delete keyChr;
+    wifiConnect(upCmd);
   }
 
-  /**** Change baud rate from default ****/
-  else if (upCmd == "AT300") newBps = 300;
-  else if (upCmd == "AT1200") newBps = 1200;
-  else if (upCmd == "AT2400") newBps = 2400;
-  else if (upCmd == "AT9600") newBps = 9600;
-  else if (upCmd == "AT19200") newBps = 19200;
-  else if (upCmd == "AT38400") newBps = 38400;
-  else if (upCmd == "AT57600") newBps = 57600;
-  else if (upCmd == "AT115200") newBps = 115200;
+  /**** Change baud rate from default ****/  
+  else if (upCmd.indexOf("AT*B") == 0)
+  {
+    int newBps=changeBaud(upCmd);
+  }
+  
 
   /**** Change telnet mode ****/
   else if (upCmd == "ATNET0")
@@ -265,7 +192,7 @@ void command()
     }
     else
     {
-      port = cmd.substring(portIndex+1, pathIndex).toInt();
+      port = cmd.substring(portIndex + 1, pathIndex).toInt();
     }
     host = cmd.substring(12, portIndex);
     path = cmd.substring(pathIndex, cmd.length());
@@ -320,8 +247,8 @@ void command()
 }
 
 /**
- * Arduino main loop function
- */     
+   Arduino main loop function
+*/
 void loop()
 {
   /**** AT command mode ****/
@@ -337,14 +264,14 @@ void loop()
         lastRingMs = millis();
       }
     }
-    
+
     // In command mode - don't exchange with TCP but gather characters to a string
     if (Serial.available())
     {
       char chr = Serial.read();
 
       // Return, enter, new line, carriage return.. anything goes to end the command
-      if ((chr == '\n') || (chr == '\r')) 
+      if ((chr == '\n') || (chr == '\r'))
       {
         command();
       }
@@ -385,9 +312,9 @@ void loop()
       // maximum size of the buffer
       size_t len = std::min(Serial.available(), max_buf_size);
       Serial.readBytes(&txBuf[0], len);
-      
+
       // Disconnect if going to AT mode with "+++" sequence
-      for (int i=0; i<(int)len; i++)
+      for (int i = 0; i < (int)len; i++)
       {
         if (txBuf[i] == '+') plusCount++; else plusCount = 0;
         if (plusCount >= 3)
@@ -423,7 +350,7 @@ void loop()
     }
 
     // Transmit from TCP to terminal
-    while (tcpClient.available()) 
+    while (tcpClient.available())
     {
       led_on();
       uint8_t rxByte = tcpClient.read();
@@ -431,9 +358,9 @@ void loop()
       // Is a telnet control code starting?
       if ((telnet == true) && (rxByte == 0xff))
       {
-        #ifdef DEBUG
+#ifdef DEBUG
         Serial.print("<t>");
-        #endif
+#endif
         rxByte = tcpClient.read();
         if (rxByte == 0xff)
         {
@@ -443,49 +370,42 @@ void loop()
         else
         {
           // rxByte has now the first byte of the actual non-escaped control code
-          #ifdef DEBUG
+#ifdef DEBUG
           Serial.print(rxByte);
           Serial.print(",");
-          #endif
+#endif
           uint8_t cmdByte1 = rxByte;
           rxByte = tcpClient.read();
           uint8_t cmdByte2 = rxByte;
           // rxByte has now the second byte of the actual non-escaped control code
-          #ifdef DEBUG
+#ifdef DEBUG
           Serial.print(rxByte); Serial.flush();
-          #endif
+#endif
           // We are asked to do some option, respond we won't
-          if (cmdByte1 == DO) 
+          if (cmdByte1 == DO)
           {
             tcpClient.write((uint8_t)255); tcpClient.write((uint8_t)WONT); tcpClient.write(cmdByte2);
           }
           // Server wants to do any option, allow it
-          else if (cmdByte1 == WILL) 
+          else if (cmdByte1 == WILL)
           {
             tcpClient.write((uint8_t)255); tcpClient.write((uint8_t)DO); tcpClient.write(cmdByte2);
           }
         }
-        #ifdef DEBUG
+#ifdef DEBUG
         Serial.print("</t>");
-        #endif
+#endif
       }
       else
       {
         // Non-control codes pass through freely
-        Serial.write(rxByte); 
+        Serial.write(rxByte);
         delay(1);
         Serial.flush();
       }
     }
   }
 
-  // Disconnect if programming mode PIN (GPIO0) is switched to GND
-#ifdef USE_SWITCH
-  if ((tcpClient.connected()) && (digitalRead(SWITCH_PIN) == LOW))
-  {
-    tcpClient.stop();
-  }
-#endif
 
   // If we have received "+++" as last bytes from serial port and there
   // has been over a second without any more bytes, disconnect
