@@ -17,30 +17,38 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include <ESP8266WiFi.h>
-#include <algorithm>
 
 //#defines
 //#define DEBUG 1          // Print additional debug information to serial channel
 #undef DEBUG
 #define SWITCH_PIN 0       // GPIO0 (programmind mode pin)
-#define DEFAULT_BPS 2400 // 2400 safe for all old computers including C64
+#define DEFAULT_BPS 2400   // 2400 safe for all old computers including C64
 #define LISTEN_PORT 23     // Listen to this if not connected. Set to zero to disable.
 #define RING_INTERVAL 3000 // How often to print RING when having a new incoming connection (ms)
 #define MAX_CMD_LENGTH 256 // Maximum length for AT command
 #define LED_PIN 2          // Status LED
 #define LED_TIME 1         // How many ms to keep LED on at activity
 #define TX_BUF_SIZE 256    // Buffer where to read from serial before writing to TCP
-// (that direction is very blocking by the ESP TCP stack,
-// so we can't do one byte a time.)
-#define RTS 13             // RTS Pin (Modem Ready to Receive)
-#define CTS 12             // CTS Pin (Modem is OK to send) 
+                           // (that direction is very blocking by the ESP TCP stack,
+                           // so we can't do one byte a time.)
+
+#undef USE_HW_FLOW_CTRL   // Use hardware (RTS/CTS) flow control
 
 // Telnet codes
 #define DO 0xfd
 #define WONT 0xfc
 #define WILL 0xfb
 #define DONT 0xfe
+
+
+// Includes
+#ifdef USE_HW_FLOW_CTRL
+#include <uart_register.h>
+#endif
+#include <ESP8266WiFi.h>
+#include <algorithm>
+
+
 
 // Global variables
 
@@ -67,6 +75,22 @@ void setup()
 {
   Serial.begin(DEFAULT_BPS);
   myBps = DEFAULT_BPS;
+  #ifdef USE_HW_FLOW_CTRL
+  // Enable flow control of Beeb -> ESP8266 data with RTS
+  // RTS on the EPS8266 is pin GPIO15 which is physical pin 16
+  // RTS on the ESP8266 is an output and should be connected to CTS on the RS423
+  // The ESP8266 has a 128 byte receive buffer, so a threshold of 64 is half full
+  pinMode(15, FUNCTION_4); // make pin U0RTS
+  SET_PERI_REG_BITS(UART_CONF1(0), UART_RX_FLOW_THRHD, 64, UART_RX_FLOW_THRHD_S);
+  SET_PERI_REG_MASK(UART_CONF1(0), UART_RX_FLOW_EN);
+  // Enable flow control of ESP8266 -> Beeb data with CTS
+  // CTS on the EPS8266 is pin GPIO13 which is physical pin 7
+  // CTS on the ESP8266 is an input and should be connected to RTS on the RS423
+  pinMode(13, FUNCTION_4); // make pin U0CTS
+  SET_PERI_REG_MASK(UART_CONF0(0), UART_TX_FLOW_EN);
+  #endif
+  
+
 
   Serial.println("Virtual modem");
   Serial.println("=============");
@@ -94,6 +118,7 @@ void setup()
 
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, HIGH);
+
 }
 
 /**
@@ -137,7 +162,7 @@ void command()
   /**** Change baud rate from default ****/  
   else if (upCmd.indexOf("AT*B") == 0)
   {
-    int newBps=changeBaud(upCmd);
+    newBps=changeBaud(upCmd);
   }
   
 

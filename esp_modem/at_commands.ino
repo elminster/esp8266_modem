@@ -104,15 +104,14 @@ void wifiConnect(String cmd)
 int changeBaud(String cmd)
 {
   int newBps = DEFAULT_BPS;
-  String bpsString = cmd.substring(cmd.indexOf("B")+1, cmd.length());
-  if (bpsString == "300") newBps = 300;
-  else if (bpsString == "1200") newBps = 1200;
-  else if (bpsString == "2400") newBps = 2400;
-  else if (bpsString == "9600") newBps = 9600;
-  else if (bpsString == "19200") newBps = 19200;
-  else if (bpsString == "38400") newBps = 38400;
-  else if (bpsString == "57600") newBps = 57600;
-  else if (bpsString == "115200") newBps = 115200;
+  if (cmd == "AT*B300") newBps = 300;
+  else if (cmd == "AT*B1200") newBps = 1200;
+  else if (cmd == "AT*B2400") newBps = 2400;
+  else if (cmd == "AT*B9600") newBps = 9600;
+  else if (cmd == "AT*B19200") newBps = 19200;
+  else if (cmd == "AT*B38400") newBps = 38400;
+  else if (cmd == "AT*B57600") newBps = 57600;
+  else if (cmd == "AT*B115200") newBps = 115200;
   return newBps;
 }
 
