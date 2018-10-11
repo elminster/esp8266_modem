@@ -1,3 +1,5 @@
+
+
 /*
    ESP8266 based virtual modem
    Original Source Copyright (C) 2016 Jussi Salin <salinjus@gmail.com>
@@ -19,7 +21,14 @@
 
 #include <ESP8266WiFi.h>
 #include <algorithm>
-//#include <ESP_EEPROM.h>
+
+//Added for WifiManager https://github.com/tzapu/WiFiManager
+#include <WiFiManager.h>
+#include <DNSServer.h>            //Local DNS Server used for redirecting all requests to the configuration portal
+#include <ESP8266WebServer.h>     //Local WebServer used to serve the configuration portal
+
+//for LED status
+#include <Ticker.h>
 
 //#defines
 
@@ -80,6 +89,8 @@ uint8_t txBuf[TX_BUF_SIZE]; // Transmit Buffer
 int hwFlowOff = 0;
 
 
+Ticker ticker; //for LED status
+
 /**
    Arduino main init function
 */
@@ -98,6 +109,10 @@ void setup()
     setHardwareFlow();
   }
 #endif
+
+  // start ticker with 0.5 because we start in AP mode and try to connect
+  ticker.attach(0.6, tick);
+  WiFiManager wifiManager;
 
   helpMessage();
 
@@ -121,8 +136,24 @@ void setup()
 
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, HIGH);
-}
 
+  //set callback that gets called when connecting to previous WiFi fails, and enters Access Point mode
+  wifiManager.setAPCallback(configModeCallback);
+
+  wifiManager.setConfigPortalTimeout(180);
+  if(!wifiManager.autoConnect("APFreeFi232")) {
+    Serial.println("failed to connect and hit timeout");
+    Serial.println("config from terminal with ATWIFI command");
+  } else {
+    //if you get here you have connected to the WiFi
+    Serial.println("connected to network ... ");
+  }
+
+  ticker.detach();
+  //Turn LED off
+  digitalWrite(LED_PIN, HIGH);
+  
+}
 
 void setHardwareFlow() {
   // Enable flow control of DTE -> ESP8266 data with RTS
@@ -140,16 +171,28 @@ void setHardwareFlow() {
   SET_PERI_REG_MASK(UART_CONF0(0), UART_TX_FLOW_EN);
 }
 
+//gets called when WiFiManager enters configuration mode
+void configModeCallback (WiFiManager *myWiFiManager) {
+  Serial.println("Entered config mode");
+  Serial.println(WiFi.softAPIP());
+  //if you used auto generated SSID, print it
+  Serial.println(myWiFiManager->getConfigPortalSSID());
+  //entered config mode, make led toggle faster
+  ticker.attach(0.2, tick);
+}
+
 void helpMessage()
 {
-  Serial.println("FreeFi232 Firmware v0.2");
-  Serial.println("=======================\n");
+  Serial.println("FreeFi232 Firmware v0.2 (WiFiManager Edition)");
+  Serial.println("=============================================\n");
   Serial.println("Based on ESP8266 Virtual Modem (C) 2016 Jussi Salin");
   Serial.println("Additions (C) 2018 Daniel Jameson and Stardot Contributors");
   Serial.println("Connect to WIFI: ATWIFI<ssid>,<key>");
+  Serial.println("Scan for Available Networks: ATSCAN");
   Serial.println("Change terminal baud rate: AT<baud>");
   Serial.println("Connect by TCP: ATDT<host>:<port>");
-  Serial.println("See my IP address: ATIP");
+  Serial.println("See my IP address: ATIP");  
+  Serial.println("See my Network: ATNET");
   Serial.println("Disable telnet command handling: ATNET0");
   Serial.println("HTTP GET: ATGET<URL>");
   Serial.print("MAC:");
@@ -173,7 +216,12 @@ void led_on(void)
   ledTime = millis();
 }
 
-
+void tick()
+{
+  //toggle state
+  int state = digitalRead(LED_PIN);  // get the current state of GPIO1 pin
+  digitalWrite(LED_PIN, !state);     // set pin to the opposite state
+}
 
 /**
    Arduino main loop function
