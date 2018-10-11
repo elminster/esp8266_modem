@@ -19,7 +19,7 @@
 
 #include <ESP8266WiFi.h>
 #include <algorithm>
-#include <ESP_EEPROM.h>
+//#include <ESP_EEPROM.h>
 
 //#defines
 
