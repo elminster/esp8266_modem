@@ -157,10 +157,61 @@ void command()
   /**** See my IP address ****/
   else if (upCmd == "ATIP")
   {
+    Serial.print("IP:");
     Serial.println(WiFi.localIP());
+    Serial.print("MAC:");
+    Serial.println(WiFi.macAddress());
     Serial.println("OK");
   }
 
+  /**** See my Network ****/
+  else if (upCmd == "ATNET")
+  {
+    // print the SSID of the network you're attached to:
+    // From https://www.arduino.cc/en/Tutorial/ConnectWithWPA
+    Serial.print("SSID: ");
+    Serial.println(WiFi.SSID());
+
+    // print the MAC address of the router you're attached to:
+    Serial.println(WiFi.BSSIDstr());
+    
+    // print the received signal strength:
+    long rssi = WiFi.RSSI();
+    Serial.print("signal strength (RSSI):");
+    Serial.println(rssi);
+
+    Serial.println("OK");
+  }
+
+    /**** See my IP address ****/
+  else if (upCmd == "ATSCAN")
+  {
+    // From https://www.arduino.cc/en/Tutorial/ScanNetworks
+    Serial.println("** Scan Networks **");
+    byte numSsid = WiFi.scanNetworks();
+    if (numSsid == -1) {
+      Serial.println("Couldn't get a wifi connection");
+      while (true);
+    }
+  
+    Serial.print("SSID List:");
+    Serial.println(numSsid);
+
+      // print the network number and name for each network found:
+    for (int thisNet = 0; thisNet < numSsid; thisNet++) {
+      Serial.print(thisNet);
+      Serial.print(") ");
+      Serial.print(WiFi.SSID(thisNet));
+      Serial.print("\tSignal: ");
+      Serial.print(WiFi.RSSI(thisNet));
+      Serial.print(" dBm");
+      Serial.print("\tEncryption: ");
+      printEncryptionType(WiFi.encryptionType(thisNet));
+    }
+  
+    Serial.println("OK");
+  }
+  
   /**** HTTP GET request ****/
   else if (upCmd.indexOf("ATGET") == 0)
   {
@@ -251,4 +302,26 @@ void command()
     myBps = newBps;
   }
   cmd = "";
+}
+
+void printEncryptionType(int thisType) {
+  // read the encryption type and print out the name:
+  switch (thisType) {
+    case ENC_TYPE_WEP:
+      Serial.println("WEP");
+      break;
+    case ENC_TYPE_TKIP:
+      Serial.println("WPA");
+      break;
+    case ENC_TYPE_CCMP:
+      Serial.println("WPA2");
+      break;
+    case ENC_TYPE_NONE:
+      Serial.println("None");
+      break;
+    case ENC_TYPE_AUTO:
+      Serial.println("Auto");
+      break;
+  }
+
 }
