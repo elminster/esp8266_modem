@@ -19,6 +19,10 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+/****** Elminster WiFiManager Dev Verson ******/
+
+#include <FS.h> //this needs to be first, or it all crashes and burns...
+
 #include <ESP8266WiFi.h>
 #include <algorithm>
 
@@ -26,9 +30,15 @@
 #include <WiFiManager.h>
 #include <DNSServer.h>            //Local DNS Server used for redirecting all requests to the configuration portal
 #include <ESP8266WebServer.h>     //Local WebServer used to serve the configuration portal
+#include <ArduinoJson.h>          // https://github.com/bblanchon/ArduinoJson
 
 //for LED status
 #include <Ticker.h>
+
+#include "Gsender.h"
+
+//for email or SMS alerts
+//#include "AlertMe.h"
 
 //#defines
 
@@ -76,11 +86,13 @@ bool cmdMode = true;       // Are we in AT command mode or connected mode
 bool dacomMode = false;    // Are we in DACOM compatible mode?
 bool telnet = true;        // Is telnet control code handling enabled
 bool dacomAutoAnswer = false; // are we looking to auto-answer in dacom mode?
+bool shouldSaveConfig = false; //flag for saving data
 
 unsigned long lastRingMs = 0; // Time of last "RING" message (millis())
 long myBps;                // What is the current BPS setting
 char plusCount = 0;        // Go to AT mode at "+++" sequence, that has to be counted
 char ctrlACount = 0;       // Go to DaCom command mode with 4xCTRL-A
+char defurl[40] = "GLASSTTY.COM:6502";  //Default site to login to
 unsigned long plusTime = 0;// When did we last receive a "+++" sequence
 unsigned long ctrlATime = 0; //When did we last receive a 4xCTRL-A sequence?
 unsigned long ledTime = 0; // Counter for LED flashing
@@ -90,6 +102,8 @@ int hwFlowOff = 0;
 
 
 Ticker ticker; //for LED status
+
+//AlertMe alert;
 
 /**
    Arduino main init function
@@ -110,10 +124,26 @@ void setup()
   }
 #endif
 
+ //clean FS, for testing
+  //SPIFFS.format();
+
+  //read configuration from FS json
+  Serial.println("mounting FS...");
+  mountMyFlash();
+  
+  // id/name, placeholder/prompt, default, length
+  WiFiManagerParameter default_url("defurl", "default url", defurl, 20);
+
   // start ticker with 0.5 because we start in AP mode and try to connect
   ticker.attach(0.6, tick);
   WiFiManager wifiManager;
 
+  //set config save notify callback
+  wifiManager.setSaveConfigCallback(saveConfigCallback);
+
+  //add all your parameters here
+  wifiManager.addParameter(&default_url);
+  
   helpMessage();
 
   digitalWrite(ESP_RING, HIGH); // Phone not ringing
@@ -147,12 +177,30 @@ void setup()
   } else {
     //if you get here you have connected to the WiFi
     Serial.println("connected to network ... ");
+    //alert.send("AlertMe Demo", "This is an email demonstrating the AlertMe library!", "duncan@elminster.com");
+    
+    Gsender *gsender = Gsender::Instance();    // Getting pointer to class instance
+    String subject = "Subject is optional!";
+    if(gsender->Subject(subject)->Send("duncan@elminster.com", "Setup test")) {
+        Serial.println("Message send.");
+    } else {
+        Serial.print("Error sending message: ");
+        Serial.println(gsender->getError());
+    }
+    
+    strcpy(defurl, default_url.getValue());  //set variable to stored value
+    cmd="ATDEFURL\n";  //call default stored URL
+    command();
   }
 
   ticker.detach();
   //Turn LED off
   digitalWrite(LED_PIN, HIGH);
-  
+
+  if (shouldSaveConfig) {
+    saveFlashConfig();
+  }
+
 }
 
 void setHardwareFlow() {
@@ -171,15 +219,6 @@ void setHardwareFlow() {
   SET_PERI_REG_MASK(UART_CONF0(0), UART_TX_FLOW_EN);
 }
 
-//gets called when WiFiManager enters configuration mode
-void configModeCallback (WiFiManager *myWiFiManager) {
-  Serial.println("Entered config mode");
-  Serial.println(WiFi.softAPIP());
-  //if you used auto generated SSID, print it
-  Serial.println(myWiFiManager->getConfigPortalSSID());
-  //entered config mode, make led toggle faster
-  ticker.attach(0.2, tick);
-}
 
 void helpMessage()
 {
@@ -192,7 +231,7 @@ void helpMessage()
   Serial.println("Change terminal baud rate: AT<baud>");
   Serial.println("Connect by TCP: ATDT<host>:<port>");
   Serial.println("See my IP address: ATIP");  
-  Serial.println("See my Network: ATNET");
+  Serial.println("See my Network: ATMYNET");
   Serial.println("Disable telnet command handling: ATNET0");
   Serial.println("HTTP GET: ATGET<URL>");
   Serial.print("MAC:");
@@ -203,6 +242,8 @@ void helpMessage()
   } else {
     Serial.println("OFF");
   }
+  Serial.print("Default URL: ");
+  Serial.println(defurl);
   Serial.println();
 
 }
@@ -214,13 +255,6 @@ void led_on(void)
 {
   digitalWrite(LED_PIN, LOW);
   ledTime = millis();
-}
-
-void tick()
-{
-  //toggle state
-  int state = digitalRead(LED_PIN);  // get the current state of GPIO1 pin
-  digitalWrite(LED_PIN, !state);     // set pin to the opposite state
 }
 
 /**

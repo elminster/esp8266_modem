@@ -17,6 +17,8 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+/****** Elminster WiFiManager Dev Verson ******/
+
 /**
    Perform a command given in command mode
 */
@@ -139,6 +141,14 @@ void command()
     telnet = true;
     Serial.println("OK");
   }
+  else if (upCmd == "ATDEFURL")
+  {
+    cmd = "ATDT";
+    cmd.concat(defurl);
+    command ();
+    Serial.println("OK");
+  }
+
 
   /**** Answer to incoming connection ****/
   else if ((upCmd == "ATA") && tcpServer.hasClient())
@@ -165,7 +175,7 @@ void command()
   }
 
   /**** See my Network ****/
-  else if (upCmd == "ATNET")
+  else if (upCmd == "ATMYNET")
   {
     // print the SSID of the network you're attached to:
     // From https://www.arduino.cc/en/Tutorial/ConnectWithWPA
@@ -302,26 +312,4 @@ void command()
     myBps = newBps;
   }
   cmd = "";
-}
-
-void printEncryptionType(int thisType) {
-  // read the encryption type and print out the name:
-  switch (thisType) {
-    case ENC_TYPE_WEP:
-      Serial.println("WEP");
-      break;
-    case ENC_TYPE_TKIP:
-      Serial.println("WPA");
-      break;
-    case ENC_TYPE_CCMP:
-      Serial.println("WPA2");
-      break;
-    case ENC_TYPE_NONE:
-      Serial.println("None");
-      break;
-    case ENC_TYPE_AUTO:
-      Serial.println("Auto");
-      break;
-  }
-
 }
