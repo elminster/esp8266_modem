@@ -65,9 +65,9 @@ bool Gsender::Send(const String &to, const String &message)
   }
 
 #if defined(GS_SERIAL_LOG_2)
-  Serial.println("HELO friend:");
+  Serial.println("EHLO friend:");
 #endif
-  client.println("HELO friend");
+  client.println("EHLO friend");
   if(!AwaitSMTPResponse(client, "250")){
     _error = "identification error";
     return false;
@@ -77,18 +77,39 @@ bool Gsender::Send(const String &to, const String &message)
   Serial.println("AUTH LOGIN:");
 #endif
   client.println("AUTH LOGIN");
-  AwaitSMTPResponse(client);
 
+while(AwaitSMTPResponse(client,"250")){
+#if defined(GS_SERIAL_LOG_2)  
+  Serial.println("250 ignore, next line");
+#endif  
+}
+
+
+/*if(!AwaitSMTPResponse(client, "334")){
+    _error = "identification error";
+    return false;
+  }*/
+  
 #if defined(GS_SERIAL_LOG_2)
-  Serial.println("EMAILBASE64_LOGIN:");
+  Serial.print("EMAILBASE64_LOGIN:");
+  Serial.println(EMAILBASE64_LOGIN);
 #endif
   client.println(EMAILBASE64_LOGIN);
   AwaitSMTPResponse(client);
+  
 
+/*  if(!AwaitSMTPResponse(client, "334")){
+    _error = "identification error";
+    return false;
+  } */
+  
 #if defined(GS_SERIAL_LOG_2)
-  Serial.println("EMAILBASE64_PASSWORD:");
+  Serial.print("EMAILBASE64_PASSWORD:");
+  Serial.println(EMAILBASE64_PASSWORD);
 #endif
   client.println(EMAILBASE64_PASSWORD);
+  
+  
   if (!AwaitSMTPResponse(client, "235")) {
     _error = "SMTP AUTH error";
     return false;

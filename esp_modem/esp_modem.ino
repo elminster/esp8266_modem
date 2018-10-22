@@ -87,12 +87,14 @@ bool dacomMode = false;    // Are we in DACOM compatible mode?
 bool telnet = true;        // Is telnet control code handling enabled
 bool dacomAutoAnswer = false; // are we looking to auto-answer in dacom mode?
 bool shouldSaveConfig = false; //flag for saving data
+//bool looponce = false;
 
 unsigned long lastRingMs = 0; // Time of last "RING" message (millis())
 long myBps;                // What is the current BPS setting
 char plusCount = 0;        // Go to AT mode at "+++" sequence, that has to be counted
 char ctrlACount = 0;       // Go to DaCom command mode with 4xCTRL-A
-char defurl[40] = "GLASSTTY.COM:6502";  //Default site to login to
+//char defurl[40] = "GLASSTTY.COM:6503";  //Default site to login to
+char defurl[40] = "192.168.1.93:23";  //Default site to login to
 unsigned long plusTime = 0;// When did we last receive a "+++" sequence
 unsigned long ctrlATime = 0; //When did we last receive a 4xCTRL-A sequence?
 unsigned long ledTime = 0; // Counter for LED flashing
@@ -177,20 +179,26 @@ void setup()
   } else {
     //if you get here you have connected to the WiFi
     Serial.println("connected to network ... ");
-    //alert.send("AlertMe Demo", "This is an email demonstrating the AlertMe library!", "duncan@elminster.com");
-    
+
+//    Serial.println("Connect to Default URL");
+    cmd="ATDEFURL\n";  //call default stored URL
+    command();
+
+    Serial.println("Emailing IP Address ....");
     Gsender *gsender = Gsender::Instance();    // Getting pointer to class instance
-    String subject = "Subject is optional!";
+    String subject = "FreeFi232 IP ADDR: ";
+    String myip = WiFi.localIP().toString();
+    subject.concat(myip);
+     
     if(gsender->Subject(subject)->Send("duncan@elminster.com", "Setup test")) {
-        Serial.println("Message send.");
+        Serial.println("Message sent.");
     } else {
         Serial.print("Error sending message: ");
         Serial.println(gsender->getError());
     }
     
-    strcpy(defurl, default_url.getValue());  //set variable to stored value
-    cmd="ATDEFURL\n";  //call default stored URL
-    command();
+
+  
   }
 
   ticker.detach();
@@ -201,6 +209,10 @@ void setup()
     saveFlashConfig();
   }
 
+   strcpy(defurl, default_url.getValue());  //set variable to stored value
+    
+    
+    
 }
 
 void setHardwareFlow() {
@@ -262,6 +274,7 @@ void led_on(void)
 */
 void loop()
 {
+ 
   /**** AT command mode ****/
   if (cmdMode == true)
   {
