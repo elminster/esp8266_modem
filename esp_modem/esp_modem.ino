@@ -35,10 +35,7 @@
 //for LED status
 #include <Ticker.h>
 
-#include "Gsender.h"
-
-//for email or SMS alerts
-//#include "AlertMe.h"
+#include "Gsender.h"    // Include header with email config
 
 //#defines
 
@@ -52,6 +49,7 @@
 #undef DEBUG
 #define DEFAULT_BPS 2400   // 2400 safe for all old computers including C64
 #define LISTEN_PORT 23     // Listen to this if not connected. Set to zero to disable.
+#define WEB_PORT 80        // Port for web server
 #define RING_INTERVAL 3000 // How often to print RING when having a new incoming connection (ms)
 #define MAX_CMD_LENGTH 256 // Maximum length for AT command
 #define LED_PIN 2          // Status LED
@@ -79,33 +77,32 @@
 // Global variables
 
 WiFiClient tcpClient;
+WiFiClient webClient;
 WiFiServer tcpServer(LISTEN_PORT);
+WiFiServer webServer(WEB_PORT);
 
-String cmd = "";           // Gather a new AT command to this string from serial
-bool cmdMode = true;       // Are we in AT command mode or connected mode
-bool dacomMode = false;    // Are we in DACOM compatible mode?
-bool telnet = true;        // Is telnet control code handling enabled
-bool dacomAutoAnswer = false; // are we looking to auto-answer in dacom mode?
-bool shouldSaveConfig = false; //flag for saving data
-//bool looponce = false;
+String cmd = "";                // Gather a new AT command to this string from serial
+bool cmdMode = true;            // Are we in AT command mode or connected mode
+bool dacomMode = false;         // Are we in DACOM compatible mode?
+bool telnet = true;             // Is telnet control code handling enabled
+bool dacomAutoAnswer = false;   // are we looking to auto-answer in dacom mode?
+bool shouldSaveConfig = false;  //flag for saving data
 
-unsigned long lastRingMs = 0; // Time of last "RING" message (millis())
-long myBps;                // What is the current BPS setting
-char plusCount = 0;        // Go to AT mode at "+++" sequence, that has to be counted
-char ctrlACount = 0;       // Go to DaCom command mode with 4xCTRL-A
+unsigned long lastRingMs = 0;   // Time of last "RING" message (millis())
+long myBps;                     // What is the current BPS setting
+char plusCount = 0;             // Go to AT mode at "+++" sequence, that has to be counted
+char ctrlACount = 0;            // Go to DaCom command mode with 4xCTRL-A
 //char defurl[40] = "GLASSTTY.COM:6503";  //Default site to login to
 char defurl[40] = "192.168.1.93:23";  //Default site to login to
-unsigned long plusTime = 0;// When did we last receive a "+++" sequence
-unsigned long ctrlATime = 0; //When did we last receive a 4xCTRL-A sequence?
-unsigned long ledTime = 0; // Counter for LED flashing
-uint8_t txBuf[TX_BUF_SIZE]; // Transmit Buffer
+unsigned long plusTime = 0;     // When did we last receive a "+++" sequence
+unsigned long ctrlATime = 0;    //When did we last receive a 4xCTRL-A sequence?
+unsigned long ledTime = 0;      // Counter for LED flashing
+uint8_t txBuf[TX_BUF_SIZE];     // Transmit Buffer
 
 int hwFlowOff = 0;
 
 
 Ticker ticker; //for LED status
-
-//AlertMe alert;
 
 /**
    Arduino main init function
@@ -154,15 +151,27 @@ void setup()
 
   if (LISTEN_PORT > 0)
   {
-    Serial.print("Listening to connections at port ");
+    Serial.print("Listening to Telnet connections at port ");
     Serial.print(LISTEN_PORT);
     Serial.println(", which result in RING and you can answer with ATA.");
     tcpServer.begin();
   }
   else
   {
-    Serial.println("Incoming connections are disabled.");
+    Serial.println("Incoming Telnet connections are disabled.");
   }
+
+  if (LISTEN_PORT > 0)
+  {
+    Serial.print("Listening for Web connections on port ");
+    Serial.println(WEB_PORT);    
+    webServer.begin();
+  }
+  else
+  {
+    Serial.println("Incoming Web connections are disabled.");
+  }
+  
   Serial.println("");
   Serial.println("OK");
 
@@ -180,7 +189,6 @@ void setup()
     //if you get here you have connected to the WiFi
     Serial.println("connected to network ... ");
 
-//    Serial.println("Connect to Default URL");
     cmd="ATDEFURL\n";  //call default stored URL
     command();
 
@@ -210,8 +218,6 @@ void setup()
   }
 
    strcpy(defurl, default_url.getValue());  //set variable to stored value
-    
-    
     
 }
 
@@ -300,6 +306,16 @@ void loop()
       digitalWrite(ESP_RING, HIGH); //Someone's not trying to call
     }
 
+    if (WEB_PORT > 0) { webClient = webServer.available(); } //Listen for Web Connections
+
+    if (webClient) 
+    { 
+      call_webserver();
+      webClient.stop();
+      Serial.println("Client disconnected.");
+      Serial.println("");
+     } 
+    
     // In command mode - don't exchange with TCP but gather characters to a string
     if (Serial.available())
     {
